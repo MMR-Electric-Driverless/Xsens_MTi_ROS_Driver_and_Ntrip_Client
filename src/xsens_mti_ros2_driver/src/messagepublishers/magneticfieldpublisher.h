@@ -48,9 +48,12 @@ struct MagneticFieldPublisher : public PacketCallback, PublisherHelperFunctions
         std::vector<double> variance = {0, 0, 0};
         node->declare_parameter("magnetic_field_stddev", variance);
 
-        int pub_queue_size = 5;
-        node->get_parameter("publisher_queue_size", pub_queue_size);
-        pub = node->create_publisher<sensor_msgs::msg::MagneticField>("/imu/mag", pub_queue_size);
+        auto qos = rclcpp::QoS(rclcpp::SensorDataQoS());
+        // depth is already 5 from the profile, override if needed:
+        // node->get_parameter("publisher_queue_size", pub_queue_size);  
+        // qos.keep_last(pub_queue_size);
+
+        pub = node->create_publisher<sensor_msgs::msg::MagneticField>("/imu/mag", qos);
         node->get_parameter("frame_id", frame_id);
         variance_from_stddev_param("magnetic_field_stddev", magnetic_field_variance, node);
     }

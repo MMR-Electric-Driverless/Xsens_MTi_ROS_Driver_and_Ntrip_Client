@@ -42,9 +42,12 @@ struct OrientationPublisher : public PacketCallback
 
     OrientationPublisher(rclcpp::Node::SharedPtr node)
     {
-        int pub_queue_size = 5;
-        node->get_parameter("publisher_queue_size", pub_queue_size);
-        pub = node->create_publisher<geometry_msgs::msg::QuaternionStamped>("/filter/quaternion", pub_queue_size);
+        auto qos = rclcpp::QoS(rclcpp::SensorDataQoS());
+        // depth is already 5 from the profile, override if needed:
+        // node->get_parameter("publisher_queue_size", pub_queue_size);  
+        // qos.keep_last(pub_queue_size);
+
+        pub = node->create_publisher<geometry_msgs::msg::QuaternionStamped>("/filter/quaternion", qos);
         node->get_parameter("frame_id", frame_id);
     }
 

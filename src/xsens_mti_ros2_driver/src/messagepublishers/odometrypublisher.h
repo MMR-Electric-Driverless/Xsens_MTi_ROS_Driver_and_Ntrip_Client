@@ -64,12 +64,14 @@ struct ODOMETRYPublisher : public PacketCallback
 
     ODOMETRYPublisher(rclcpp::Node::SharedPtr node)
     {
-        int pub_queue_size = 5;
+        auto qos = rclcpp::QoS(rclcpp::SensorDataQoS());
+        // depth is already 5 from the profile, override if needed:
+        // node->get_parameter("publisher_queue_size", pub_queue_size);  
+        // qos.keep_last(pub_queue_size);
 
-        node->get_parameter("publisher_queue_size", pub_queue_size);
         node->get_parameter("frame_id", frame_id);
 
-        pub = node->create_publisher<nav_msgs::msg::Odometry>("/odometry", pub_queue_size);
+        pub = node->create_publisher<nav_msgs::msg::Odometry>("/odometry", qos);
 
         m_static_tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(node);
         m_tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(node);

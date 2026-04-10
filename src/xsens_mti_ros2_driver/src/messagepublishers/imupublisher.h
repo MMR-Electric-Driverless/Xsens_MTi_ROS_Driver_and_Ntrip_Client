@@ -54,9 +54,12 @@ struct ImuPublisher : public PacketCallback, PublisherHelperFunctions
         node->declare_parameter("angular_velocity_stddev", variance);
         node->declare_parameter("linear_acceleration_stddev", variance);
 
-        int pub_queue_size = 5;
-        node->get_parameter("publisher_queue_size", pub_queue_size);
-        pub = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data", pub_queue_size);
+        auto qos = rclcpp::QoS(rclcpp::SensorDataQoS());
+        // depth is already 5 from the profile, override if needed:
+        // node->get_parameter("publisher_queue_size", pub_queue_size);  
+        // qos.keep_last(pub_queue_size);
+
+        pub = node->create_publisher<sensor_msgs::msg::Imu>("/imu/data", qos);
 
         // REP 145: Conventions for IMU Sensor Drivers (http://www.ros.org/reps/rep-0145.html)
         variance_from_stddev_param("orientation_stddev", orientation_variance, node);

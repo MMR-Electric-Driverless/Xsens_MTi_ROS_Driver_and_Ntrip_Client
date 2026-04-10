@@ -44,12 +44,14 @@ struct StatusPublisher : public PacketCallback
 
     StatusPublisher(rclcpp::Node::SharedPtr node)
     {
-        int pub_queue_size = 5;
+        auto qos = rclcpp::QoS(rclcpp::SensorDataQoS());
+        // depth is already 5 from the profile, override if needed:
+        // node->get_parameter("publisher_queue_size", pub_queue_size);
+        // qos.keep_last(pub_queue_size);
 
-        node->get_parameter("publisher_queue_size", pub_queue_size);
         //node->get_parameter("frame_id", frame_id);
 
-        pub = node->create_publisher<xsens_mti_ros2_driver::msg::XsStatusWord>("/status", pub_queue_size);
+        pub = node->create_publisher<xsens_mti_ros2_driver::msg::XsStatusWord>("/status", qos);
     }
 
     void parseToMessage(xsens_mti_ros2_driver::msg::XsStatusWord &msg, uint32_t status)
