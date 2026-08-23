@@ -42,9 +42,29 @@
 struct ODOMETRYPublisher : public PacketCallback
 {
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub;
+
+    /* `frame_id` is the SENSOR frame -- where the MTi is bolted. It is the right
+       answer for the sensor topics (/imu/data and friends), and the WRONG answer
+       for either field of an Odometry, which this publisher used to use it for:
+       it set header.frame_id = frame_id ("imu_link") and child_frame_id =
+       "base_link", i.e. it named the sensor as the reference frame and the
+       vehicle as the moving body, while applying no mounting transform at all.
+       The edge that produced carried the global UTM-relative position -- hundreds
+       of metres -- on what should be a fixed few-centimetre sensor offset.
+
+       An Odometry needs two frames that are neither of those:
+         odom_frame_id       the local, UTM-anchored frame the pose is expressed in
+         odom_child_frame_id the body the pose AND twist describe -- the sensor
+                             itself, since no lever arm is applied here
+       and utm_frame_id anchors odom_frame_id to the first GNSS fix. */
     std::string frame_id = DEFAULT_FRAME_ID;
-    std::string odom_init_frame_id = "odom_init";
-    std::string base_frame_id = "base_link"; 
+    std::string odom_frame_id = "gnss_odom";
+    std::string odom_child_frame_id = "imu_link";
+    std::string utm_frame_id = "utm";
+
+    /* Off by default. See the pub_tf declaration in xdainterface.cpp: this
+       driver is not the authority on vehicle pose, and a frame gets one parent. */
+    bool pub_tf = false;
 
     // Member variables to store initial UTM position and zone
     struct UTMCoordinate
@@ -70,6 +90,10 @@ struct ODOMETRYPublisher : public PacketCallback
         // qos.keep_last(pub_queue_size);
 
         node->get_parameter("frame_id", frame_id);
+        node->get_parameter("odom_frame_id", odom_frame_id);
+        node->get_parameter("odom_child_frame_id", odom_child_frame_id);
+        node->get_parameter("utm_frame_id", utm_frame_id);
+        node->get_parameter("pub_tf", pub_tf);
 
         pub = node->create_publisher<nav_msgs::msg::Odometry>("/odometry", qos);
 
@@ -138,8 +162,13 @@ struct ODOMETRYPublisher : public PacketCallback
      * @param parent_frame_id    The identifier of the parent coordinate frame.
      * @param child_frame_id     The identifier of the child coordinate frame.
      * @param pose               The pose data containing position and orientation to define the transform.
-     * @param transformStampedMsg Reference to a TransformStamped message that will be populated and sent.
+     * @param transformStampedMsg Reference to a TransformStamped message that will be populated.
      * @param timestamp          The time at which the transform is valid.
+     *
+     * @note FILLS ONLY -- it does not broadcast. It used to send on the dynamic
+     *       broadcaster itself, so the UTM anchor below (sent again on the
+     *       static broadcaster by its caller) went out on BOTH /tf and
+     *       /tf_static. Choosing the broadcaster is the caller's job.
      */
     void fillTransform(
         const std::string &parent_frame_id,
@@ -164,9 +193,6 @@ struct ODOMETRYPublisher : public PacketCallback
 
         // Populate the rotation component of the transform with the orientation data from the pose.
         transformStampedMsg.transform.rotation = pose.orientation;
-
-        // Broadcast the populated TransformStamped message using the TF broadcaster.
-        m_tf_broadcaster_->sendTransform(transformStampedMsg);
     }
 
 
@@ -319,8 +345,8 @@ struct ODOMETRYPublisher : public PacketCallback
             nav_msgs::msg::Odometry msg;
 
             msg.header.stamp = timestamp;
-            msg.header.frame_id = frame_id;
-            msg.child_frame_id = base_frame_id;
+            msg.header.frame_id = odom_frame_id;
+            msg.child_frame_id = odom_child_frame_id;
 
             // Set orientation
             msg.pose.pose.orientation.w = q.w();
@@ -349,9 +375,16 @@ struct ODOMETRYPublisher : public PacketCallback
                 pose.orientation.y = 0.0;
                 pose.orientation.z = 0.0;
 
-                geometry_msgs::msg::TransformStamped transform;
-                fillTransform(odom_init_frame_id, frame_id, pose, transform, timestamp);
-                m_static_tf_broadcaster_->sendTransform(transform);
+                /* Anchors the local odometry frame to the first fix. It is
+                   `utm -> gnss_odom`, the origin of the local frame -- NOT a
+                   sensor edge, which is what `odom_init -> imu_link` wrongly
+                   made it look like. */
+                if (pub_tf)
+                {
+                    geometry_msgs::msg::TransformStamped transform;
+                    fillTransform(utm_frame_id, odom_frame_id, pose, transform, timestamp);
+                    m_static_tf_broadcaster_->sendTransform(transform);
+                }
             }
 
             // Compute position relative to initial position
@@ -376,17 +409,20 @@ struct ODOMETRYPublisher : public PacketCallback
             msg.twist.twist.angular.y = gyro[1];
             msg.twist.twist.angular.z = gyro[2];
 
-            // Publish the odometry message
+            // Publish the odometry message. Always -- the topic is the useful
+            // output and is what gets recorded; only the TF below is gated.
             pub->publish(msg);
 
-            // Publish odometry transformation
-            geometry_msgs::msg::Pose pose;
-            pose.position = msg.pose.pose.position;
-            pose.orientation = msg.pose.pose.orientation;
+            if (pub_tf)
+            {
+                geometry_msgs::msg::Pose pose;
+                pose.position = msg.pose.pose.position;
+                pose.orientation = msg.pose.pose.orientation;
 
-            geometry_msgs::msg::TransformStamped transform;
-            fillTransform(msg.header.frame_id, msg.child_frame_id, pose, transform, timestamp);
-            m_tf_broadcaster_->sendTransform(transform);
+                geometry_msgs::msg::TransformStamped transform;
+                fillTransform(msg.header.frame_id, msg.child_frame_id, pose, transform, timestamp);
+                m_tf_broadcaster_->sendTransform(transform);
+            }
         }
     }
 };

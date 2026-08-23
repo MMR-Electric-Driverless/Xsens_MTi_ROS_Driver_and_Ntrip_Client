@@ -43,21 +43,34 @@ struct TransformPublisher : public PacketCallback
     tf2_ros::TransformBroadcaster tf_broadcaster;
     std::string frame_id = DEFAULT_FRAME_ID;
 
+    /* This publisher emits ONLY a transform -- there is no topic. Its output is
+       `<attitude_frame_id> -> <frame_id>`, orientation with zero translation,
+       which duplicates attitude the tree already carries via
+       odom -> base_link -> imu_link. It therefore gives imu_link a second parent
+       and must stay behind pub_tf like every other transform this driver can
+       emit. Nothing is lost by leaving it off: the same quaternion is on
+       /imu/data. The parent was hardcoded "world"; it is a parameter now so the
+       frame graph stays readable from config (docs/FRAMES.md rule 4). */
+    std::string attitude_frame_id = "imu_attitude_ref";
+    bool pub_tf = false;
+
     TransformPublisher(rclcpp::Node::SharedPtr node) : tf_broadcaster(node)
     {
         node->get_parameter("frame_id", frame_id);
+        node->get_parameter("attitude_frame_id", attitude_frame_id);
+        node->get_parameter("pub_tf", pub_tf);
     }
 
     void operator()(const XsDataPacket &packet, rclcpp::Time timestamp)
     {
-        if (packet.containsOrientation())
+        if (pub_tf && packet.containsOrientation())
         {
             geometry_msgs::msg::TransformStamped tf;
 
             XsQuaternion q = packet.orientationQuaternion();
 
             tf.header.stamp = timestamp;
-            tf.header.frame_id = "world";
+            tf.header.frame_id = attitude_frame_id;
             tf.child_frame_id = frame_id;
             tf.transform.translation.x = 0.0;
             tf.transform.translation.y = 0.0;

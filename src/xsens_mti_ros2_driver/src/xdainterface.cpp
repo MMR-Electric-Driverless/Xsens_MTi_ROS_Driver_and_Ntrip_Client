@@ -1364,5 +1364,26 @@ void XdaInterface::declareCommonParameters()
 	m_node->declare_parameter("pub_gnsspose", should_publish);
 	m_node->declare_parameter("pub_odometry", should_publish);
 
+	/* TF is OFF by default, unlike every pub_* flag above.
+	 *
+	 * This driver is not the authority on where the vehicle is. Its GNSS/INS
+	 * solution is a second, independent localization, and a TF tree admits
+	 * exactly one parent per frame -- so broadcasting it fights whatever owns
+	 * base_link (fast_LIMO, via odom -> base_link) and the tree flips between
+	 * them at the publish rate. The topics stay on; only the transforms go.
+	 *
+	 * Defaulting this true, as the other flags do, would mean any params file
+	 * that forgets it silently re-creates that conflict. */
+	m_node->declare_parameter("pub_tf", false);
+
+	/* Frames for the odometry message. `frame_id` is the SENSOR frame and is
+	 * correct for the sensor topics (/imu/data et al), but an Odometry needs a
+	 * reference frame and a body frame, and those are different things -- see
+	 * odometrypublisher.h. */
+	m_node->declare_parameter("odom_frame_id", "gnss_odom");
+	m_node->declare_parameter("odom_child_frame_id", "imu_link");
+	m_node->declare_parameter("utm_frame_id", "utm");
+	m_node->declare_parameter("attitude_frame_id", "imu_attitude_ref");
+
 
 }
